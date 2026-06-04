@@ -4,6 +4,14 @@ import modal
 from jinav4_vllm.modal_app.app import app, ref_image, GPU, COMMON, ART, artifacts
 
 
+def _mv_to_np(mv):
+    """Convert a per-token multivector (torch tensor, possibly bf16) to float32 numpy."""
+    import numpy as np
+    if hasattr(mv, "detach"):
+        return mv.detach().float().cpu().numpy().astype(np.float32)
+    return np.asarray(mv, dtype=np.float32)
+
+
 def _activate_retrieval(model):
     for setter in ("set_adapter", "set_task"):
         if hasattr(model, setter):
@@ -32,7 +40,7 @@ def reference_text():
         # Ground-truth values from the official high-level API (authoritative).
         mv = model.encode_text(texts=[p.text], task="retrieval",
                                prompt_name=p.kind, return_multivector=True)[0]
-        mv = np.asarray(mv.detach().cpu().numpy() if hasattr(mv, "detach") else mv, dtype=np.float32)
+        mv = _mv_to_np(mv)
         # Token ids from the identical prompt string (for alignment vs vLLM).
         prompt = build_text_prompt(p.text, p.kind)
         ids = np.asarray(processor.tokenizer(prompt, add_special_tokens=True)["input_ids"], dtype=np.int64)
@@ -66,7 +74,7 @@ def reference_image():
     for p in IMAGE_PROBES:
         img = Image.open(f"/root/data/probes/{os.path.basename(p.path)}").convert("RGB")
         mv = model.encode_image(images=[img], task="retrieval", return_multivector=True)[0]
-        mv = np.asarray(mv.detach().cpu().numpy() if hasattr(mv, "detach") else mv, dtype=np.float32)
+        mv = _mv_to_np(mv)
         # Token ids via the identical prompt + processor (vision tokens expand here).
         proc = processor(text=[build_image_prompt()], images=[img], return_tensors="pt")
         ids = np.asarray(proc["input_ids"][0].cpu().numpy(), dtype=np.int64)

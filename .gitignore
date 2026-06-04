@@ -11,10 +11,13 @@ venv/
 .env
 *.env
 
-# generated
-reports/*.json
-reports/*.md
-!reports/.gitkeep
+# generated parity outputs (hand-written findings like stage1_text.md ARE tracked)
+reports/parity.json
+reports/parity.md
+
+# local artifact copies pulled from the Modal volume
+artifacts/*/
+!artifacts/.gitkeep
 
 # model cache
 *.safetensors

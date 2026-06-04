@@ -22,3 +22,6 @@ artifacts/*/
 # model cache
 *.safetensors
 hf-cache/
+
+# local Claude settings
+.claude/

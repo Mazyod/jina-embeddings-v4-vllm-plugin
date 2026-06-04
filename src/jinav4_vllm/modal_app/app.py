@@ -80,6 +80,44 @@ def verify_projector():
 
 
 @app.function(image=vllm_image, gpu=GPU, timeout=1800, **COMMON)
+def inspect_pooler():
+    """R5 recon: learn vLLM 0.22's model class + pooler interface for an in-engine projection."""
+    import inspect
+    from vllm import LLM
+    from vllm.config import PoolerConfig
+    llm = LLM(model="jinaai/jina-embeddings-v4-vllm-retrieval", runner="pooling",
+              pooler_config=PoolerConfig(task="token_embed"), max_model_len=512,
+              gpu_memory_utilization=0.5, enforce_eager=True)
+    info = {}
+    try:
+        runner = llm.llm_engine.model_executor.driver_worker.model_runner
+        model = runner.model
+    except Exception as e:
+        # vLLM 0.22 v1 engine path differs; try the v1 core
+        info["driver_path_error"] = repr(e)
+        model = None
+        for attr in ("llm_engine", "engine"):
+            eng = getattr(llm, attr, None)
+            if eng is not None:
+                info["engine_attrs"] = [a for a in dir(eng) if not a.startswith("__")][:40]
+                break
+    if model is not None:
+        info["model_class"] = type(model).__module__ + "." + type(model).__qualname__
+        info["model_mro"] = [c.__module__ + "." + c.__name__ for c in type(model).__mro__]
+        info["has_pooler"] = hasattr(model, "pooler")
+        if hasattr(model, "pooler"):
+            p = model.pooler
+            info["pooler_class"] = type(p).__module__ + "." + type(p).__qualname__
+            info["pooler_callables"] = [a for a in dir(p) if not a.startswith("_")][:40]
+            try:
+                info["pooler_forward_sig"] = str(inspect.signature(p.forward))
+            except Exception as e:
+                info["pooler_forward_sig_err"] = repr(e)
+    print(info)
+    return info
+
+
+@app.function(image=vllm_image, gpu=GPU, timeout=1800, **COMMON)
 def spike_r3_offline_shape():
     """R3: confirm offline pooling returns [n, 2048] per-token hidden states + token ids."""
     from vllm import LLM

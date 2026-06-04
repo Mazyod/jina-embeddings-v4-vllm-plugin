@@ -5,12 +5,17 @@ the retrieval projector + L2-norm server-side, so clients receive final multivec
 sidesteps R1 (undocumented multimodal /pooling over HTTP) by controlling prompt construction.
 
 Deploy:  uv run modal deploy src/jinav4_vllm/modal_app/serve_b.py
+
+NOTE: no `from __future__ import annotations` here — FastAPI must see the real Pydantic model
+class as the body-param annotation (stringized annotations + a locally-defined model make FastAPI
+mis-route the body as a query param -> 422).
 """
-from __future__ import annotations
 import modal
 from jinav4_vllm.modal_app.app import app, vllm_image, GPU, COMMON, ART
 
-web_image = vllm_image.uv_pip_install("fastapi", "uvicorn", "pydantic")
+# vLLM already bundles fastapi/uvicorn/pydantic (its own OpenAI server deps), and we cannot add
+# a build step after add_local_dir, so reuse the vLLM image directly.
+web_image = vllm_image
 
 VLLM_MODEL = "jinaai/jina-embeddings-v4-vllm-retrieval"
 
@@ -46,28 +51,22 @@ class VariantB:
     @modal.asgi_app()
     def web(self):
         import base64, io
-        from fastapi import FastAPI
-        from pydantic import BaseModel
+        from fastapi import FastAPI, Request
         from PIL import Image
         from jinav4_vllm.common.probes import build_text_prompt, build_image_prompt
 
         api = FastAPI()
 
-        class TextReq(BaseModel):
-            text: str
-            kind: str = "query"
-
-        class ImageReq(BaseModel):
-            image_b64: str
-
         @api.post("/embed/text")
-        def embed_text(r: TextReq):
-            mv, ids = self._encode(build_text_prompt(r.text, r.kind))
+        async def embed_text(request: Request):
+            body = await request.json()
+            mv, ids = self._encode(build_text_prompt(body["text"], body.get("kind", "query")))
             return {"dim": 128, "tokens": mv.shape[0], "multivectors": mv.tolist(), "token_ids": ids}
 
         @api.post("/embed/image")
-        def embed_image(r: ImageReq):
-            img = Image.open(io.BytesIO(base64.b64decode(r.image_b64))).convert("RGB")
+        async def embed_image(request: Request):
+            body = await request.json()
+            img = Image.open(io.BytesIO(base64.b64decode(body["image_b64"]))).convert("RGB")
             mv, ids = self._encode({"prompt": build_image_prompt(), "multi_modal_data": {"image": img}})
             return {"dim": 128, "tokens": mv.shape[0], "multivectors": mv.tolist(), "token_ids": ids}
 

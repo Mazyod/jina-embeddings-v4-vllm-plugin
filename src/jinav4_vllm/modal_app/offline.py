@@ -24,14 +24,13 @@ def _to_np(data):
 def offline_text():
     import sys; sys.path.insert(0, "/root")
     import os, numpy as np
-    from vllm.inputs.data import TextPrompt
     from jinav4_vllm.common.probes import TEXT_PROBES, build_text_prompt
     from jinav4_vllm.common.artifacts import save_artifact
 
     llm = _build_engine(2048)
     os.makedirs(f"{ART}/offline", exist_ok=True)
-    prompts = [TextPrompt(prompt=build_text_prompt(p.text, p.kind)) for p in TEXT_PROBES]
-    outputs = llm.encode(prompts)
+    prompts = [build_text_prompt(p.text, p.kind) for p in TEXT_PROBES]
+    outputs = llm.encode(prompts, pooling_task="token_embed")
     results = {}
     for p, out in zip(TEXT_PROBES, outputs):
         hidden = _to_np(out.outputs.data)            # [n, 2048]
@@ -48,7 +47,6 @@ def offline_image():
     import sys; sys.path.insert(0, "/root")
     import os, numpy as np
     from PIL import Image
-    from vllm.inputs.data import TextPrompt
     from jinav4_vllm.common.probes import IMAGE_PROBES, build_image_prompt
     from jinav4_vllm.common.artifacts import save_artifact
 
@@ -57,7 +55,8 @@ def offline_image():
     results = {}
     for p in IMAGE_PROBES:
         img = Image.open(f"/root/data/probes/{os.path.basename(p.path)}").convert("RGB")
-        out = llm.encode([TextPrompt(prompt=build_image_prompt(), multi_modal_data={"image": img})])[0]
+        out = llm.encode([{"prompt": build_image_prompt(), "multi_modal_data": {"image": img}}],
+                         pooling_task="token_embed")[0]
         hidden = _to_np(out.outputs.data)
         ids = np.asarray(out.prompt_token_ids, dtype=np.int64)
         save_artifact(f"{ART}/offline/{p.id}.npz", hidden, ids)

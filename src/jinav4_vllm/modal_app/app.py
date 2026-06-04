@@ -6,8 +6,10 @@ app = modal.App("jinav4-vllm")
 
 # Persistent volumes for HF cache and our artifacts.
 hf_cache = modal.Volume.from_name("hf-cache", create_if_missing=True)
+vllm_cache = modal.Volume.from_name("vllm-cache", create_if_missing=True)
 artifacts = modal.Volume.from_name("jinav4-artifacts", create_if_missing=True)
 CACHE = "/root/.cache/huggingface"
+VLLM_CACHE = "/root/.cache/vllm"
 ART = "/artifacts"
 
 
@@ -23,7 +25,7 @@ def _with_local(img):
 ref_image = _with_local(
     modal.Image.debian_slim(python_version="3.12")
     .uv_pip_install(
-        "torch", "transformers>=4.52", "peft>=0.11", "safetensors",
+        "torch", "torchvision", "transformers>=4.52,<5", "peft>=0.11", "safetensors",
         "huggingface_hub", "pillow", "numpy>=2.0", "accelerate",
     )
     .env({"HF_HOME": CACHE})
@@ -38,7 +40,7 @@ vllm_image = _with_local(
 
 HF_SECRET = modal.Secret.from_name("huggingface-secret")   # holds HF_TOKEN
 GPU = "A10G"
-COMMON = dict(volumes={CACHE: hf_cache, ART: artifacts}, secrets=[HF_SECRET])
+COMMON = dict(volumes={CACHE: hf_cache, VLLM_CACHE: vllm_cache, ART: artifacts}, secrets=[HF_SECRET])
 
 
 @app.function(image=ref_image, timeout=1800, **COMMON)

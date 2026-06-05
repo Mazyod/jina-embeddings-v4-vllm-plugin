@@ -60,9 +60,16 @@ endpoint; `/v1/embeddings` only returns one pooled vector per input.)
   re-validated against the new pooling API (the recon functions in `app.py` regenerate the needed
   facts quickly).
 
-## Follow-ups for productionizing C
-1. **Bake the projector into a checkpoint** (add `multi_vector_projector.weight/bias` to a copy of the
-   vLLM checkpoint + set `architectures` in its `config.json`) so `vllm serve <repo>` needs no env var
-   and no `--hf-overrides` — fully drop-in.
-2. Publish the plugin as a proper package (or upstream a `JinaV4` model to vLLM).
-3. Pin the vLLM version; add a CI smoke test that `/pooling` returns dim 128 after upgrades.
+## Productionizing C — done & verified
+- **Operator runbook + official-image Dockerfile + bake script:** `deploy/DEPLOY.md`,
+  `deploy/Dockerfile` (extends `vllm/vllm-openai`), `deploy/bake_checkpoint.py`.
+- **Fully drop-in baked checkpoint (Mode B) — VERIFIED.** `bake_checkpoint` adds the projector
+  tensors + `architectures: [JinaV4MultiVector]` + the chat template (incl. the Qwen2.5-VL
+  *processor* `chat_template.json`, which is the one that wins for multimodal) into the checkpoint.
+  Served with only `--runner pooling --pooler-config.task token_embed` (plugin installed, no
+  `--hf-overrides`/`--chat-template`/env): text `[*,128]`, image `[75/110,128]` aligned, full parity
+  (text cos_mean 0.999, image 0.992/0.997).
+
+## Remaining follow-ups
+1. Publish the plugin as a proper package (or upstream a `JinaV4` model to vLLM).
+2. Pin the vLLM version; add a CI smoke test that `/pooling` returns dim 128 after upgrades.

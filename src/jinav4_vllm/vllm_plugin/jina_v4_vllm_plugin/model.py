@@ -91,12 +91,25 @@ class JinaV4MultiVectorModel(Qwen2_5_VLForConditionalGeneration, SupportsLateInt
                 torch.from_numpy(proj["b"]).to(device=dev, dtype=torch.float32))
 
     def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> set[str]:
-        # Backbone weights only; the projector is injected from the .npz (not in the checkpoint).
-        # Delegate to the parent so the inherited Qwen2.5-VL hf_to_vllm_mapper is applied.
+        # Delegate the backbone to the parent so the inherited Qwen2.5-VL hf_to_vllm_mapper applies.
+        weights = list(weights)
+        proj_weights = {n: w for n, w in weights if "multi_vector_projector" in n}
         backbone = [(n, w) for n, w in weights if "multi_vector_projector" not in n]
         loaded = super().load_weights(backbone)
         loaded = set(loaded) if loaded is not None else set()
-        self._load_projector()
-        loaded.add("multi_vector_projector.weight")
-        loaded.add("multi_vector_projector.bias")
+
+        dev = self.multi_vector_projector.weight.device
+        if proj_weights:
+            # Projector baked into the checkpoint (fully drop-in mode).
+            with torch.no_grad():
+                for name, w in proj_weights.items():
+                    attr = name.rsplit("multi_vector_projector.", 1)[-1]  # "weight" | "bias"
+                    getattr(self.multi_vector_projector, attr).copy_(
+                        w.to(device=dev, dtype=torch.float32))
+                    loaded.add(f"multi_vector_projector.{attr}")
+        else:
+            # Projector injected from the .npz (JINA_MV_PROJECTOR / default volume path).
+            self._load_projector()
+            loaded.add("multi_vector_projector.weight")
+            loaded.add("multi_vector_projector.bias")
         return loaded

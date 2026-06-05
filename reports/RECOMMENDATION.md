@@ -103,6 +103,14 @@ is needed.
   the `/pooling` endpoint (`/v1/embeddings` only returns one pooled vector). Full recipe + a
   bake-into-checkpoint option in `reports/variant_c.md`.
 
+## 6b. Deployment artifacts (ready to use)
+
+A complete operator hand-off for Variant C lives in `deploy/`:
+- `deploy/DEPLOY.md` — runbook: build image, two run modes, client examples (text + image + MaxSim).
+- `deploy/Dockerfile` — extends the **official `vllm/vllm-openai`** image with the plugin.
+- `deploy/bake_checkpoint.py` — portable script that produces the fully drop-in checkpoint (Mode B,
+  verified: `vllm serve <baked> --runner pooling --pooler-config.task token_embed` and nothing else).
+
 ## 7. Suggested follow-ups (not blocking)
 
 1. Throughput/latency benchmark of B at production batch sizes (not measured here).

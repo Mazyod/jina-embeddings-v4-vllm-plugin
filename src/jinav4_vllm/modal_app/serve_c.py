@@ -15,6 +15,9 @@ VLLM_PORT = 8000
 VLLM_MODEL = "jinaai/jina-embeddings-v4-vllm-retrieval"
 
 
+BAKED_CKPT = "/artifacts/jina-v4-mv-baked"  # produced by app.py::bake_checkpoint
+
+
 @app.function(image=vllm_plugin_image, gpu=GPU, timeout=3600, scaledown_window=600, **COMMON)
 @modal.concurrent(max_inputs=8)
 @modal.web_server(port=VLLM_PORT, startup_timeout=900)
@@ -32,5 +35,25 @@ def serve_c():
         # Custom chat template emits Jina's exact image prompt so multimodal /pooling token
         # sequences match the canonical reference (avoids the default-template wrapper tokens).
         "--chat-template", "/opt/jina_plugin/jina_image_chat_template.jinja",
+    ]
+    subprocess.Popen(cmd)
+
+
+@app.function(image=vllm_plugin_image, gpu=GPU, timeout=3600, scaledown_window=600, **COMMON)
+@modal.concurrent(max_inputs=8)
+@modal.web_server(port=VLLM_PORT, startup_timeout=900)
+def serve_baked():
+    """Mode B drop-in: serve the baked checkpoint with NO --hf-overrides/--chat-template/env var.
+
+    architectures, the projector tensors, and the chat template all live inside the checkpoint.
+    """
+    import subprocess
+    cmd = [
+        "vllm", "serve", BAKED_CKPT,
+        "--runner", "pooling",
+        "--pooler-config.task", "token_embed",
+        "--served-model-name", "jina-v4",
+        "--host", "0.0.0.0", "--port", str(VLLM_PORT),
+        "--max-model-len", "4096",
     ]
     subprocess.Popen(cmd)

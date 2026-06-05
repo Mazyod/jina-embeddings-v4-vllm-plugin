@@ -92,6 +92,86 @@ def verify_projector():
     return mad
 
 
+@app.function(image=ref_image, timeout=3600, **COMMON)
+def bake_checkpoint(out_dir: str = f"{ART}/jina-v4-mv-baked", src_model: str = "jinaai/jina-embeddings-v4-vllm-retrieval"):
+    """Produce a fully self-contained, drop-in checkpoint for Variant C.
+
+    = the vLLM retrieval checkpoint + the multi_vector_projector tensors + architectures override
+      + the Jina image chat template — so `vllm serve <out_dir> --runner pooling
+      --pooler-config.task token_embed` (with the plugin installed) works with NO --hf-overrides,
+      NO --chat-template, and NO projector env var.
+    """
+    import os, json, shutil
+    import numpy as np
+    import torch
+    from safetensors import safe_open
+    from safetensors.torch import save_file
+    from huggingface_hub import snapshot_download
+
+    repo = snapshot_download(src_model)
+    os.makedirs(out_dir, exist_ok=True)
+
+    # 1) copy every checkpoint file (resolve symlinks) into out_dir
+    for fn in os.listdir(repo):
+        src = os.path.join(repo, fn)
+        if os.path.isfile(src):
+            shutil.copy2(os.path.realpath(src), os.path.join(out_dir, fn))
+
+    # 2) determine the existing weight->shard map (sharded index or a single safetensors)
+    index_path = os.path.join(out_dir, "model.safetensors.index.json")
+    if os.path.exists(index_path):
+        index = json.load(open(index_path))
+        weight_map = index["weight_map"]
+        metadata = index.get("metadata", {})
+    else:
+        # single-file checkpoint: build an index that maps all of its tensors to model.safetensors
+        weight_map, metadata = {}, {}
+        single = os.path.join(out_dir, "model.safetensors")
+        with safe_open(single, framework="pt") as f:
+            for k in f.keys():
+                weight_map[k] = "model.safetensors"
+
+    # 3) write the projector tensors as a new shard
+    proj = np.load(f"{ART}/projector/retrieval.npz")
+    proj_tensors = {
+        "multi_vector_projector.weight": torch.from_numpy(proj["W"]).to(torch.float32),
+        "multi_vector_projector.bias": torch.from_numpy(proj["b"]).to(torch.float32),
+    }
+    save_file(proj_tensors, os.path.join(out_dir, "model-projector.safetensors"))
+    weight_map["multi_vector_projector.weight"] = "model-projector.safetensors"
+    weight_map["multi_vector_projector.bias"] = "model-projector.safetensors"
+    metadata["total_size"] = int(metadata.get("total_size", 0)) + int(
+        proj_tensors["multi_vector_projector.weight"].numel() * 4
+        + proj_tensors["multi_vector_projector.bias"].numel() * 4)
+    json.dump({"metadata": metadata, "weight_map": weight_map}, open(index_path, "w"), indent=2)
+
+    # 4) architectures -> JinaV4MultiVector (resolved by the installed plugin)
+    cfg_path = os.path.join(out_dir, "config.json")
+    cfg = json.load(open(cfg_path))
+    cfg["architectures"] = ["JinaV4MultiVector"]
+    json.dump(cfg, open(cfg_path, "w"), indent=2)
+
+    # 5) bake the Jina image chat template so multimodal /pooling needs no --chat-template
+    tmpl = open("/root/jinav4_vllm/vllm_plugin/jina_image_chat_template.jinja").read()
+    open(os.path.join(out_dir, "chat_template.jinja"), "w").write(tmpl)
+    # The Qwen2.5-VL *processor* template (chat_template.json) wins for multimodal; overwrite it,
+    # plus tokenizer_config for completeness.
+    json.dump({"chat_template": tmpl}, open(os.path.join(out_dir, "chat_template.json"), "w"), indent=2)
+    tok_cfg_path = os.path.join(out_dir, "tokenizer_config.json")
+    if os.path.exists(tok_cfg_path):
+        tok_cfg = json.load(open(tok_cfg_path))
+        tok_cfg["chat_template"] = tmpl
+        json.dump(tok_cfg, open(tok_cfg_path, "w"), indent=2)
+
+    artifacts.commit()
+    files = sorted(os.listdir(out_dir))
+    meta = {"out_dir": out_dir, "architectures": cfg["architectures"],
+            "has_index": True, "n_files": len(files),
+            "projector_in_map": "multi_vector_projector.weight" in weight_map}
+    print(meta)
+    return meta
+
+
 @app.function(image=vllm_image, timeout=1800, **COMMON)
 def recon_vllm_pooling():
     """CPU recon: learn the exact vLLM 0.22 API to add an in-engine projected multi-vector pooler.

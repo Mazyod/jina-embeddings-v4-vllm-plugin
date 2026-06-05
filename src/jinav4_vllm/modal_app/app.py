@@ -32,10 +32,23 @@ ref_image = _with_local(
 )
 
 # vLLM image: pin at lock time (see spike_r3). Kept separate from transformers stack.
-vllm_image = _with_local(
+_vllm_base = (
     modal.Image.debian_slim(python_version="3.12")
     .uv_pip_install("vllm", "pillow", "numpy>=2.0", "huggingface_hub")
     .env({"HF_HOME": CACHE})
+)
+vllm_image = _with_local(_vllm_base)
+
+# Variant C image: install our out-of-tree model as a vLLM general plugin (entry point), so a
+# stock `vllm serve ... --hf-overrides architectures=[JinaV4MultiVector]` emits final [n,128].
+# copy=True lets the pip-install build step run before the (non-copy) runtime mounts in _with_local.
+vllm_plugin_image = _with_local(
+    _vllm_base
+    .add_local_dir("src/jinav4_vllm/vllm_plugin", remote_path="/opt/jina_plugin", copy=True)
+    .run_commands(
+        "python -m pip install --no-deps /opt/jina_plugin "
+        "|| (python -m ensurepip && python -m pip install --no-deps /opt/jina_plugin)"
+    )
 )
 
 HF_SECRET = modal.Secret.from_name("huggingface-secret")   # holds HF_TOKEN
@@ -77,6 +90,148 @@ def verify_projector():
     print(f"max_abs_diff={mad:.6e}", "PASS" if mad < 1e-3 else "FAIL")
     assert mad < 1e-3, "extracted projector does not match model projector"
     return mad
+
+
+@app.function(image=vllm_image, timeout=1800, **COMMON)
+def recon_vllm_pooling():
+    """CPU recon: learn the exact vLLM 0.22 API to add an in-engine projected multi-vector pooler.
+
+    Dumps: registered architectures (Col*/embed/Qwen-VL), the pooling-adapter source
+    (how --convert embed attaches a pooler), the pooler module surface, and an existing
+    projected-multivector model (ColQwen/ColPali) to copy the pattern.
+    """
+    import inspect, os, pkgutil, importlib
+    out = []
+    def dump(title, s, cap=6000):
+        out.append(f"\n===== {title} =====\n{s[:cap]}")
+
+    # 1) registered architectures of interest
+    try:
+        from vllm import ModelRegistry
+        archs = sorted(ModelRegistry.get_supported_archs())
+        interesting = [a for a in archs if any(k in a.lower() for k in
+                       ("col", "embed", "qwen2_5_vl", "qwen2vl", "jina", "gme", "llavanext", "vlm2vec"))]
+        dump("ARCHS (interesting)", "\n".join(interesting))
+    except Exception as e:
+        dump("ARCHS error", repr(e))
+
+    # 2) the embedding/pooling adapter (how generative -> pooling)
+    for mod in ("vllm.model_executor.models.adapters",):
+        try:
+            m = importlib.import_module(mod)
+            names = [n for n in dir(m) if not n.startswith("_")]
+            dump(f"{mod} names", ", ".join(names))
+            for fn in ("as_embedding_model", "as_seq_cls_model", "_create_pooling_model_cls", "as_reward_model"):
+                if hasattr(m, fn):
+                    try: dump(f"{mod}.{fn}", inspect.getsource(getattr(m, fn)))
+                    except Exception as e: dump(f"{mod}.{fn} src err", repr(e))
+        except Exception as e:
+            dump(f"{mod} err", repr(e))
+
+    # 3) pooler module surface + base classes
+    try:
+        import vllm.model_executor.layers.pooler as P
+        dump("pooler public names", ", ".join(n for n in dir(P) if not n.startswith("_")))
+        for cls in ("Pooler", "DispatchPooler", "PoolerHead", "PoolingType", "PoolerOutput",
+                    "PoolingParamsUpdate", "PoolingMetadata", "build_output", "AllPool", "EmbeddingPoolerHead"):
+            obj = getattr(P, cls, None)
+            if obj is None: continue
+            try:
+                if inspect.isclass(obj):
+                    meths = [n for n in dir(obj) if not n.startswith("_")]
+                    sig = ""
+                    for mm in ("__init__", "forward", "for_encode", "for_embed", "get_pooling_updates"):
+                        f = getattr(obj, mm, None)
+                        if f:
+                            try: sig += f"\n  {mm}{inspect.signature(f)}"
+                            except Exception: pass
+                    dump(f"pooler.{cls}", f"methods={meths}\nsigs={sig}")
+                else:
+                    dump(f"pooler.{cls}", repr(obj))
+            except Exception as e:
+                dump(f"pooler.{cls} err", repr(e))
+    except Exception as e:
+        dump("pooler import err", repr(e))
+
+    # 4) find an existing projected-multivector model to copy (colqwen/colpali)
+    try:
+        import vllm.model_executor.models as M
+        pkgdir = os.path.dirname(M.__file__)
+        cand = [f for f in os.listdir(pkgdir) if any(k in f.lower() for k in ("col", "jina", "gme"))]
+        dump("model files (col/jina/gme)", ", ".join(sorted(cand)))
+        for f in cand:
+            if f.endswith(".py"):
+                src = open(os.path.join(pkgdir, f)).read()
+                # show the pooler-related parts
+                lines = src.splitlines()
+                hits = [i for i,l in enumerate(lines) if any(k in l for k in
+                        ("pooler", "Pooler", "token_embed", "projector", "projection", "multi_vector", "nn.Linear", "normalize"))]
+                snippet = "\n".join(f"{i:4d}: {lines[i]}" for i in hits[:60])
+                dump(f"model {f} (pooler/projection lines)", snippet, cap=4000)
+    except Exception as e:
+        dump("models scan err", repr(e))
+
+    text = "".join(out)
+    print(text)
+    return {"len": len(text)}
+
+
+@app.function(image=vllm_image, timeout=1800, **COMMON)
+def recon_dump_sources():
+    """Dump full source of the closest template model + the token-embed pooler builder."""
+    import os, importlib
+    import vllm.model_executor.models as M
+    pkg = os.path.dirname(M.__file__)
+    out = []
+    def cat(path, title, cap=20000):
+        try:
+            out.append(f"\n########## {title} ({path}) ##########\n" + open(path).read()[:cap])
+        except Exception as e:
+            out.append(f"\n########## {title} ERR {e!r} ##########")
+    cat(os.path.join(pkg, "colqwen3.py"), "colqwen3.py")
+    # the token-embed pooler builder + TokenPooler
+    import vllm.model_executor.layers.pooler.tokwise as TW
+    cat(TW.__file__, "pooler/tokwise.py")
+    # colpali load_weights projector pattern (smaller, for reference)
+    cat(os.path.join(pkg, "colpali.py"), "colpali.py", cap=14000)
+    text = "".join(out)
+    print(text)
+    return {"len": len(text)}
+
+
+@app.function(image=vllm_image, timeout=1800, **COMMON)
+def recon_qwen25_api():
+    """Confirm Qwen2.5-VL class names + import paths for the JinaV4MultiVector plugin."""
+    import inspect, importlib
+    out = {}
+    m = importlib.import_module("vllm.model_executor.models.qwen2_5_vl")
+    out["qwen2_5_vl names"] = [n for n in dir(m) if "Qwen2_5_VL" in n]
+    for path, names in {
+        "vllm.model_executor.layers.pooler.tokwise": ["pooler_for_token_embed"],
+        "vllm.model_executor.models.interfaces": ["SupportsLateInteraction", "SupportsMultiModal"],
+        "vllm.model_executor.models.interfaces_base": ["default_pooling_type"],
+        "vllm.model_executor.models.utils": ["AutoWeightsLoader", "WeightsMapper"],
+        "vllm.model_executor.model_loader.weight_utils": ["default_weight_loader"],
+        "vllm.multimodal": ["MULTIMODAL_REGISTRY"],
+    }.items():
+        try:
+            mod = importlib.import_module(path)
+            out[path] = {n: hasattr(mod, n) for n in names}
+        except Exception as e:
+            out[path] = f"ERR {e!r}"
+    try:
+        from vllm.model_executor.layers.pooler.tokwise import pooler_for_token_embed
+        out["pooler_for_token_embed sig"] = str(inspect.signature(pooler_for_token_embed))
+    except Exception as e:
+        out["pooler_for_token_embed sig"] = f"ERR {e!r}"
+    # head_dtype presence on a built model_config? just check attribute name exists on class
+    try:
+        from vllm.config import ModelConfig
+        out["ModelConfig has head_dtype"] = "head_dtype" in dir(ModelConfig)
+    except Exception as e:
+        out["ModelConfig head_dtype"] = f"ERR {e!r}"
+    import json; print(json.dumps(out, indent=2, default=str))
+    return out
 
 
 @app.function(image=vllm_image, gpu=GPU, timeout=1800, **COMMON)

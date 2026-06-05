@@ -1,16 +1,19 @@
 # Jina v4 multi-vector multimodal embeddings on vLLM — Feasibility Verdict & Production Recommendation
 
-**Date:** 2026-06-04 · **Status:** Feasible. Recommend shipping **Variant B**. · GPU: Modal A10G · vLLM **0.22.0**
+**Date:** 2026-06-05 · **Status:** Feasible. Recommend **Variant C** (native vLLM OpenAI server) to unify infra; Variant B as fallback. · GPU: Modal A10G · vLLM **0.22.0**
 
 ---
 
 ## 1. Verdict
 
-**It works.** vLLM can serve Jina Embeddings v4 **multi-vector** (128-dim/token, ColBERT-style),
-**multimodal** (text + image) embeddings over HTTP, and the output matches the canonical Jina
-reference to **bf16 precision** (per-token cosine ≈ 0.999 for text; ≈ 0.992–0.997 for images).
-The recommended production architecture is **Variant B** — a thin FastAPI service wrapping an
-in-process vLLM pooling engine, returning final 128-dim multivectors.
+**It works — including the native route.** vLLM can serve Jina Embeddings v4 **multi-vector**
+(128-dim/token, ColBERT-style), **multimodal** (text + image) embeddings over HTTP, matching the
+canonical Jina reference to **bf16 precision** (per-token cosine ≈ 0.999 for text; ≈ 0.992–0.997 for
+images). **All three projection sites were built and proven**, and crucially the **stock `vllm serve`
+OpenAI server (Variant C)** now returns final 128-dim multivectors directly from `/pooling` — via a
+small out-of-tree model plugin + a custom chat template. Recommended choice: **Variant C** for teams
+already serving LLMs on the vLLM OpenAI image (unifies infrastructure); **Variant B** (FastAPI +
+in-process engine) as a no-plugin fallback.
 
 ## 2. How it works (the mechanism we proved)
 
@@ -37,9 +40,9 @@ Full numbers in `reports/parity.md`, `reports/stage1_text.md`, `reports/stage1_i
 | path | text (5 probes) | image (2 probes) | notes |
 |---|---|---|---|
 | offline (in-process baseline) | ✅ cos_mean 0.999, aligned | ✅ cos_mean 0.992–0.997, aligned | token_ids match reference exactly |
-| **variant_b** (FastAPI + in-process engine) | ✅ cos_mean 0.999, aligned | ✅ cos_mean 0.992–0.997, aligned | **faithful for both modalities** |
-| variant_a (stock `vllm serve` /pooling + client projection) | ✅ cos_mean 0.999, aligned | ⚠️ MISALIGNED | text faithful; images get +11 chat-template tokens |
-| variant_c (in-vLLM plugin) | not built (R5 time-box) | — | see `reports/variant_c.md`; B makes it unnecessary |
+| **variant_c** (stock `vllm serve` + plugin) | ✅ cos_mean 0.999, aligned | ✅ cos_mean 0.992–0.997, aligned | **native OpenAI server returns [n,128]; faithful both modalities** |
+| **variant_b** (FastAPI + in-process engine) | ✅ cos_mean 0.999, aligned | ✅ cos_mean 0.992–0.997, aligned | faithful for both modalities |
+| variant_a (stock `vllm serve` /pooling + client projection) | ✅ cos_mean 0.999, aligned | ⚠️ MISALIGNED | text faithful; images need the same custom chat template as C |
 
 **The "loss of information" question is answered:** the projection *site* does not change parity.
 Variant A serializes the raw 2048-dim hidden states over JSON and still hits cos_mean 0.999 — so
@@ -49,27 +52,36 @@ backbone is bf16 with different kernels, giving ~1–2% per-element wobble while
 
 ## 4. Variant comparison
 
-| | A — stock serve + client projection | **B — FastAPI + in-process engine** | C — in-vLLM plugin |
+| | A — stock serve + client projection | B — FastAPI + in-process engine | **C — stock serve + plugin** |
 |---|---|---|---|
-| Parity (text) | cos_mean 0.999 | **cos_mean 0.999** | ≈0.999 (expected) |
-| Multimodal over HTTP | needs custom chat template (token mismatch) | **faithful out of the box** | faithful (if built) |
-| Wire payload | raw 2048/token (large) | **final 128/token (16× smaller)** | 128/token |
-| Client complexity | high (carries projector + post-proc) | **none (clean JSON contract)** | none |
-| Server complexity | none (stock vLLM) | **moderate (≈80 LOC)** | high (plugin, v1 internals) |
-| Version-fragility | low | **low** | high (vLLM v1 pooler API) |
+| Parity (text) | cos_mean 0.999 | cos_mean 0.999 | **cos_mean 0.999** |
+| Parity (image) | n/a (misaligned) | 0.992–0.997 | **0.992–0.997** |
+| Multimodal over HTTP | needs custom chat template | faithful (prompt control) | **faithful (custom chat template)** |
+| Server image | stock vLLM OpenAI | custom FastAPI | **stock vLLM OpenAI** |
+| Endpoint | native `/pooling` (raw 2048) | custom `/embed/*` | **native `/pooling` (128)** |
+| Wire payload | raw 2048/token (large) | final 128/token | **final 128/token** |
+| Client complexity | high (carries projector) | none | **none** |
+| Server complexity | none | moderate (≈80 LOC) | **small plugin (model class + template)** |
+| Infra unification | yes | no (separate service) | **yes (same vLLM image as other LLMs)** |
+| Version-fragility | low | low | medium (out-of-tree model vs vLLM internals) |
 
 ## 5. Recommendation
 
-**Ship Variant B.** It is faithful for text *and* images, exposes a clean `{multivectors, token_ids}`
-JSON contract (clients stay dumb), sends 16× less data than A, and carries low version risk. It is
-~80 lines on top of `vllm serve` deps (`src/jinav4_vllm/modal_app/serve_b.py`).
+**Choose Variant C** if you serve other LLMs on the vLLM OpenAI image and want one unified
+serving stack: it is a stock `vllm serve` whose `/pooling` returns final L2-normalized `[n,128]`
+multivectors for text *and* images, at the same parity as B (cos_mean 0.999 / 0.992–0.997). The cost
+is carrying a small out-of-tree model plugin (`src/jinav4_vllm/vllm_plugin/`) that touches vLLM
+internals, so pin the vLLM version and re-validate the model class on upgrades (`reports/variant_c.md`).
+For a fully drop-in artifact, bake the projector into the checkpoint so no env var / `--hf-overrides`
+is needed.
 
-- **Variant A** is a fine fallback only if a fully-stock vLLM image is a hard requirement *and* the
-  workload is text-only (its multimodal HTTP path needs a custom chat template to match Jina's image
-  prompt — otherwise image token sequences differ by the chat-template wrapper).
-- **Variant C** offers no measurable parity benefit over B (serialization is already shown harmless)
-  at the highest complexity; pursue only if native in-engine 128-dim output is independently required
-  (recipe in `reports/variant_c.md`).
+- **Variant B** is the fallback if you prefer not to maintain an out-of-tree vLLM model: a small
+  self-contained FastAPI service (`serve_b.py`) with a clean `{multivectors, token_ids}` contract and
+  no vLLM-internals coupling — but it is a separate service from your other LLMs.
+- **Variant A** (stock serve, client-side projection) is viable for text-only workloads; for images
+  it needs the same custom chat template as C and pushes 16× larger payloads (raw 2048-dim) over the
+  wire. Empirically that serialization still preserves parity (cos_mean 0.999), so it's a valid
+  text-only option but not preferred.
 
 ## 6. Operational notes for productionizing B
 
@@ -84,6 +96,12 @@ JSON contract (clients stay dumb), sends 16× less data than A, and carries low 
   code (10-min scaledown window).
 - **Projector artifact:** ship `retrieval.npz` (≈1 MB) alongside the service; it is the only piece not
   inside the vLLM checkpoint.
+- **Variant C (native) deployment:** stock `vllm serve <ckpt> --runner pooling --pooler-config.task
+  token_embed --hf-overrides '{"architectures":["JinaV4MultiVector"]}' --chat-template
+  jina_image_chat_template.jinja`, with the `jina-v4-vllm-plugin` package installed and `retrieval.npz`
+  reachable (default `/artifacts/projector/retrieval.npz`, or `JINA_MV_PROJECTOR`). Per-token output is
+  the `/pooling` endpoint (`/v1/embeddings` only returns one pooled vector). Full recipe + a
+  bake-into-checkpoint option in `reports/variant_c.md`.
 
 ## 7. Suggested follow-ups (not blocking)
 

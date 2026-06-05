@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jina-v4-vllm-plugin"
+version = "0.1.0"
+description = "vLLM out-of-tree model: Jina Embeddings v4 multi-vector (token_embed) on Qwen2.5-VL"
+requires-python = ">=3.10"
+
+# vLLM loads this in every process (incl. the v1 EngineCore worker) and registers the
+# JinaV4MultiVector architecture, so a stock `vllm serve` emits final 128-dim multivectors.
+[project.entry-points."vllm.general_plugins"]
+jina_v4 = "jina_v4_vllm_plugin:register"
+
+[tool.setuptools]
+packages = ["jina_v4_vllm_plugin"]

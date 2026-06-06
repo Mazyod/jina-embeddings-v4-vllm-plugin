@@ -1,18 +1,18 @@
 [project]
 name = "jinav4-vllm"
 version = "0.1.0"
-description = "Jina v4 multi-vector multimodal embeddings on vLLM — feasibility study"
+description = "Build, serve, and validate Jina Embeddings v4 multi-vector multimodal embeddings on vLLM (out-of-tree plugin)"
 requires-python = ">=3.12"
 dependencies = [
     "numpy>=2.0",
     "pillow>=10.0",
+    "requests>=2.32",
     "modal>=0.64",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8.0",
-    "requests>=2.34.2",
 ]
 
 [build-system]

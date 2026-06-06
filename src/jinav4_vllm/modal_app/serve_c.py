@@ -34,6 +34,7 @@ BAKED_CKPT = "/artifacts/jina-v4-mv-baked"  # produced by app.py::bake_checkpoin
 @modal.web_server(port=VLLM_PORT, startup_timeout=900)
 def serve_c():
     import subprocess
+    from jina_v4_vllm_plugin import chat_template_path  # shipped inside the installed plugin
     # The plugin reads the projector from /artifacts/projector/retrieval.npz (mounted via COMMON).
     cmd = [
         "vllm", "serve", VLLM_MODEL,
@@ -45,7 +46,7 @@ def serve_c():
         "--max-model-len", "4096",
         # Custom chat template emits Jina's exact image prompt so multimodal /pooling token
         # sequences match the canonical reference (avoids the default-template wrapper tokens).
-        "--chat-template", "/opt/jina_plugin/jina_image_chat_template.jinja",
+        "--chat-template", chat_template_path(),
     ] + _mm_flags()
     subprocess.Popen(cmd)
 

@@ -48,11 +48,11 @@ def test_run_comparison_count_only_aligns_on_length(tmp_path):
     W = rng.standard_normal((128, 2048)).astype(np.float32)
     b = rng.standard_normal((128,)).astype(np.float32)
     ref_mv = to_multivector(hidden, W, b)
-    ref = tmp_path / "reference"; va = tmp_path / "variant_a"; ref.mkdir(); va.mkdir()
+    ref = tmp_path / "reference"; sv = tmp_path / "served"; ref.mkdir(); sv.mkdir()
     save_artifact(str(ref / "x.npz"), ref_mv, np.array([10, 11, 12, 13, 14], dtype=np.int64))
-    # variant_a stores final 128-dim with placeholder index ids but same COUNT
-    save_artifact(str(va / "x.npz"), ref_mv, np.arange(5, dtype=np.int64))
-    rows = run_comparison(str(ref), {"variant_a": str(va)}, W, b, ["x"],
-                          count_only_sources={"variant_a"})
+    # served stores final 128-dim with placeholder index ids but same COUNT (/pooling drops ids)
+    save_artifact(str(sv / "x.npz"), ref_mv, np.arange(5, dtype=np.int64))
+    rows = run_comparison(str(ref), {"served": str(sv)}, W, b, ["x"],
+                          count_only_sources={"served"})
     assert rows[0]["aligned"] is True
     assert rows[0]["cosine_min"] > 0.9999

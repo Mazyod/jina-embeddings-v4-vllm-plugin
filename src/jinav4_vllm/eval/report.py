@@ -75,14 +75,17 @@ def main():
     W, b = proj["W"], proj["b"]
     from jinav4_vllm.common.probes import TEXT_PROBES, IMAGE_PROBES
     probe_ids = [p.id for p in TEXT_PROBES] + [p.id for p in IMAGE_PROBES]
-    sources = {name: f"artifacts/{name}" for name in ("offline", "variant_a", "variant_b", "variant_c")
+    # offline = vLLM in-process baseline; served = the deployed vLLM OpenAI server (/pooling).
+    sources = {name: f"artifacts/{name}" for name in ("offline", "served")
                if os.path.isdir(f"artifacts/{name}")}
+    # served is count-only: /pooling returns the [n,128] matrix without token_ids, so we align on
+    # row count (offline carries true prompt_token_ids and aligns by id).
     rows = run_comparison("artifacts/reference", sources, W, b, probe_ids,
-                          count_only_sources={"variant_a", "variant_c"})
+                          count_only_sources={"served"})
     # Gate on aggregate per-token cosine (direction is what late-interaction MaxSim uses).
     # Achieved floors (bf16; canonical Jina encode_* is bf16, vLLM backbone is bf16 with
     # different kernels): text cos_mean ~0.999 / cos_min ~0.994; image cos_mean ~0.992-0.997
-    # with per-patch cos_min outliers (vision-encoder bf16). See reports/stage1_*.md.
+    # with per-patch cos_min outliers (vision-encoder bf16). See docs/VALIDATION.md.
     thresholds = {"cosine_mean": 0.99}
     md = render_markdown(rows, thresholds)
     os.makedirs("reports", exist_ok=True)

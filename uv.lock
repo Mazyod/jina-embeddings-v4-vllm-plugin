@@ -452,12 +452,12 @@ dependencies = [
     { name = "modal" },
     { name = "numpy" },
     { name = "pillow" },
+    { name = "requests" },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "pytest" },
-    { name = "requests" },
 ]
 
 [package.metadata]
@@ -465,13 +465,11 @@ requires-dist = [
     { name = "modal", specifier = ">=0.64" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "pillow", specifier = ">=10.0" },
+    { name = "requests", specifier = ">=2.32" },
 ]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=8.0" },
-    { name = "requests", specifier = ">=2.34.2" },
-]
+dev = [{ name = "pytest", specifier = ">=8.0" }]
 
 [[package]]
 name = "markdown-it-py"

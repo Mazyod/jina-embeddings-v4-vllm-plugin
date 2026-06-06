@@ -7,11 +7,16 @@ venv/
 # uv
 .uv/
 
+# build outputs (e.g. the plugin wheel: src/jinav4_vllm/vllm_plugin/dist)
+build/
+dist/
+*.egg-info/
+
 # env / secrets
 .env
 *.env
 
-# generated parity outputs (hand-written findings like stage1_text.md ARE tracked)
+# generated parity outputs (curated findings live in docs/VALIDATION.md)
 reports/parity.json
 reports/parity.md
 

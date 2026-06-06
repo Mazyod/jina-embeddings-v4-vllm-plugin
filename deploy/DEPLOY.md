@@ -16,7 +16,7 @@ in-engine. Pin the vLLM version — the model class touches vLLM internals; re-v
 | Piece | Path | Why |
 |---|---|---|
 | Plugin package | `src/jinav4_vllm/vllm_plugin/` | registers `JinaV4MultiVector` (entry point) + model class |
-| Image chat template | `…/vllm_plugin/jina_image_chat_template.jinja` | makes multimodal `/pooling` emit Jina's exact image prompt |
+| Image chat template | shipped in the `jina-v4-vllm-plugin` package (`chat_template_path()`) | makes multimodal `/pooling` emit Jina's exact image prompt |
 | Projector weights | `artifacts/projector/retrieval.npz` (`W[128,2048]`,`b[128]`) | the 128-dim head — NOT in the vLLM checkpoint |
 | Dockerfile | `deploy/Dockerfile` | extends official `vllm/vllm-openai` with the plugin |
 | Bake script | `deploy/bake_checkpoint.py` | builds the fully drop-in checkpoint (Mode B) |
@@ -155,7 +155,7 @@ Reference presets (`src/jinav4_vllm/common/imaging.py`): `PRESET_MAX_STANDARD = 
 
 **Set it in whichever mode you run:**
 - **Mode A (flags):** add `--mm-processor-kwargs '{"min_pixels":200704,"max_pixels":3211264}'` to the
-  serve command (the Modal `serve_a`/`serve_c` functions add this automatically from
+  serve command (the Modal `serve_c` function adds this automatically from
   `JINA_IMAGE_MIN_PIXELS` / `JINA_IMAGE_MAX_PIXELS`).
 - **Mode B (baked, recommended):** bake it in →
   `python deploy/bake_checkpoint.py --out ./jina-v4-mv-baked --min-pixels 200704 --max-pixels 3211264`
@@ -173,12 +173,12 @@ re-verify at a raised resolution, set the same `JINA_IMAGE_MAX_PIXELS` for `refe
 ## 4. Operational notes
 
 - **Pin vLLM.** The plugin's model class subclasses `Qwen2_5_VLForConditionalGeneration` and uses
-  `pooler_for_token_embed` — internal APIs. On a vLLM upgrade, re-validate (the `recon_*` Modal
-  functions in `src/jinav4_vllm/modal_app/app.py` regenerate the needed API facts in one cheap run),
-  and smoke-test that `/pooling` returns dim 128.
+  `pooler_for_token_embed` — internal APIs. On a vLLM upgrade, follow the revalidation checklist in
+  `docs/COMPAT.md` (the `src/jinav4_vllm/modal_app/revalidate.py` jobs regenerate the needed API
+  facts in one cheap run), and smoke-test that `/pooling` returns dim 128 (`make smoke URL=…`).
 - **Parity is bf16, not bit-exact.** Canonical Jina `encode_*` is itself bf16 and vLLM runs bf16 with
   different kernels → ~0.999 per-token cosine (text) / ~0.992–0.997 (image). This is expected; details
-  in `reports/stage1_text.md` and `reports/stage1_image.md`.
+  in `docs/VALIDATION.md`.
 - **Without the plugin, the checkpoint won't load** (`architectures: JinaV4MultiVector` is unknown).
   That's intended — the model requires the plugin. Keep them versioned together.
 - **token_ids:** the `/pooling` HTTP response returns only the `[n,dim]` matrix, not token ids. If you

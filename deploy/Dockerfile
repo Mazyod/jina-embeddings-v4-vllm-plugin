@@ -4,7 +4,7 @@
 # OpenAI server's /pooling endpoint returns final L2-normalized [n,128] multivectors for text+image.
 #
 # Pin VLLM_TAG to the version the plugin was validated against (the model class touches vLLM
-# internals; re-validate on upgrades — see reports/variant_c.md).
+# internals; re-validate on upgrades — see docs/COMPAT.md).
 ARG VLLM_TAG=v0.22.0
 FROM vllm/vllm-openai:${VLLM_TAG}
 
@@ -14,8 +14,8 @@ COPY src/jinav4_vllm/vllm_plugin /opt/jina_plugin
 RUN python3 -m pip install --no-cache-dir --no-deps /opt/jina_plugin
 
 # 2) Chat template (only needed for the "Mode A" run below; the baked checkpoint embeds its own).
-#    Keep a copy at a stable path.
-RUN cp /opt/jina_plugin/jina_image_chat_template.jinja /opt/jina_image_chat_template.jinja
+#    It ships inside the installed package; keep a copy at a stable path for the Mode A example.
+RUN cp /opt/jina_plugin/jina_v4_vllm_plugin/jina_image_chat_template.jinja /opt/jina_image_chat_template.jinja
 
 # 3) (Mode A only) the projector, if you are NOT using the baked checkpoint. Uncomment + provide it:
 # COPY artifacts/projector/retrieval.npz /opt/retrieval.npz

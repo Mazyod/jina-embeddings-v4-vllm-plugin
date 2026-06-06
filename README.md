@@ -17,13 +17,14 @@ backbone + a ColBERT projection + `pooler_for_token_embed`) to produce true mult
 
 | Path | What |
 |---|---|
-| **`src/jinav4_vllm/vllm_plugin/`** | **The plugin** — `JinaV4MultiVector` model + entry-point registration + image chat template. The maintained core. |
+| **`src/jinav4_vllm/vllm_plugin/`** | **The plugin** — `JinaV4MultiVector` model + entry-point registration + image chat template. Builds as the `jina-v4-vllm-plugin` wheel. The maintained core. |
 | **`deploy/`** | Production hand-off: `DEPLOY.md` runbook, `Dockerfile` (extends official `vllm/vllm-openai`), `bake_checkpoint.py` (drop-in checkpoint builder). |
+| `src/jinav4_vllm/client.py` | `JinaV4Client` SDK — text/image embed + MaxSim over the served `/pooling` endpoint. |
 | `src/jinav4_vllm/projector/` | Extract the retrieval-effective projector (base + retrieval-LoRA merged) → `retrieval.npz`. |
 | `src/jinav4_vllm/multivector/`, `eval/`, `common/` | Pure-NumPy projection math, parity metrics, probes, image-fidelity config (unit-tested). |
-| `src/jinav4_vllm/modal_app/` | Modal harnesses used to validate parity on GPU (reference vs offline vs the 3 serving variants) + the `bake_checkpoint` job + recon diagnostics. |
-| `reports/` | Evidence: `RECOMMENDATION.md`, `stage1_text.md`, `stage1_image.md`, `variant_c.md`, parity tables. |
-| `docs/superpowers/` | Original design spec + implementation plan. |
+| `src/jinav4_vllm/modal_app/` | Modal jobs: `app.py` (extract + bake artifacts), `serve_c.py` (native server), `reference.py`/`offline.py`/`collect.py` (parity capture), `revalidate.py` (post-upgrade API checks). |
+| `docs/` | `VALIDATION.md` (parity evidence + mechanism), `COMPAT.md` (vLLM version matrix + revalidation checklist). |
+| `reports/` | Generated parity output (`parity.md`/`.json`, gitignored). |
 
 ## Quickstart (production — Variant C)
 
@@ -44,19 +45,22 @@ curl -s localhost:8000/pooling -H 'Content-Type: application/json' \
 ```
 
 Full runbook (both deployment modes, image requests, MaxSim scoring, image fidelity, ops notes):
-**`deploy/DEPLOY.md`**. Verdict & variant comparison: **`reports/RECOMMENDATION.md`**.
+**`deploy/DEPLOY.md`**. Parity evidence & mechanism: **`docs/VALIDATION.md`**.
 
-## Validate / demo (Modal GPU)
+## Validate / demo
 
-Pure-logic tests run locally (`uv run pytest`). GPU parity runs on Modal:
+Pure-logic tests run locally; GPU parity runs on Modal (`make help` lists everything):
 
 ```bash
-uv run modal run src/jinav4_vllm/modal_app/app.py::extract_projector   # build retrieval.npz
-uv run modal run src/jinav4_vllm/modal_app/reference.py::reference_text # + reference_image
-uv run modal run src/jinav4_vllm/modal_app/offline.py::offline_text     # + offline_image
-uv run modal deploy src/jinav4_vllm/modal_app/serve_c.py                # native server (serve_c / serve_baked)
-uv run python -m jinav4_vllm.eval.report                                # element-wise parity table
+make test                       # local pure-logic suite (no GPU/vLLM)
+make package                    # build the jina-v4-vllm-plugin wheel
+make e2e                        # GPU: extract -> reference -> offline -> parity table
+make serve                      # deploy the native vLLM OpenAI server (plugin)
+make smoke URL=https://…        # /pooling contract check (dim 128, L2-normalized)
+make collect URL=https://… && make parity   # add the served column to the parity table
 ```
+
+Parity evidence and the mechanism: `docs/VALIDATION.md`. vLLM-upgrade revalidation: `docs/COMPAT.md`.
 
 ## Image fidelity
 Qwen2.5-VL uses dynamic resolution; the checkpoint default caps it low. Control via min/max pixels —
@@ -65,5 +69,6 @@ See `deploy/DEPLOY.md` § Image fidelity. Keep reference and served sides equal 
 breaks (token counts change with resolution).
 
 ## Versioning
-The plugin touches vLLM internals — **pin the vLLM version** and re-validate on upgrades (the
-`recon_*` functions in `src/jinav4_vllm/modal_app/app.py` regenerate the needed API facts cheaply).
+The plugin touches vLLM internals — **pin the vLLM version** and re-validate on upgrades. `make
+revalidate` (and the other jobs in `src/jinav4_vllm/modal_app/revalidate.py`) regenerate the needed
+API facts cheaply; the tested matrix + checklist live in `docs/COMPAT.md`.

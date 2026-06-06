@@ -143,6 +143,33 @@ Vectors are already L2-normalized, so MaxSim uses plain dot products.
 
 ---
 
+## 3b. Image fidelity (max resolution) — IMPORTANT
+
+Jina v4 uses the Qwen2.5-VL **dynamic-resolution** image processor, and the checkpoint's default
+**caps resolution low** — too low for dense documents. Number of image tokens ≈
+`(resized_H · resized_W) / (28·28·merge)`; raise `max_pixels` for higher fidelity (more patch tokens,
+more compute). `pixels` = resized H·W (multiples of `28·28 = 784`).
+
+Reference presets (`src/jinav4_vllm/common/imaging.py`): `PRESET_MAX_STANDARD = 1_003_520`
+(Qwen default), `PRESET_MAX_HIFI = 3_211_264` (high-fidelity docs).
+
+**Set it in whichever mode you run:**
+- **Mode A (flags):** add `--mm-processor-kwargs '{"min_pixels":200704,"max_pixels":3211264}'` to the
+  serve command (the Modal `serve_a`/`serve_c` functions add this automatically from
+  `JINA_IMAGE_MIN_PIXELS` / `JINA_IMAGE_MAX_PIXELS`).
+- **Mode B (baked, recommended):** bake it in →
+  `python deploy/bake_checkpoint.py --out ./jina-v4-mv-baked --min-pixels 200704 --max-pixels 3211264`
+  (writes `min_pixels`/`max_pixels` + `size` into the checkpoint's `preprocessor_config.json`). Then
+  no flag is needed at serve time; an env/flag still overrides if set.
+- **Offline engine:** `LLM(..., mm_processor_kwargs={"min_pixels":...,"max_pixels":...})` (the repo's
+  offline harness reads the same env vars).
+
+**Parity caveat:** changing `max_pixels` changes the image-token COUNT, so the **reference and the
+served/offline side must use the same values** — otherwise the per-token alignment check fails (R2).
+The repo defaults leave these UNSET (checkpoint default) so the verified parity demo stays green; to
+re-verify at a raised resolution, set the same `JINA_IMAGE_MAX_PIXELS` for `reference_*` and
+`offline_*` and re-run `eval.report`.
+
 ## 4. Operational notes
 
 - **Pin vLLM.** The plugin's model class subclasses `Qwen2_5_VLForConditionalGeneration` and uses

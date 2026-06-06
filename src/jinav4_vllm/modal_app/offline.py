@@ -7,11 +7,15 @@ VLLM_MODEL = "jinaai/jina-embeddings-v4-vllm-retrieval"
 
 
 def _build_engine(max_model_len):
+    import sys; sys.path.insert(0, "/root")
     from vllm import LLM
     from vllm.config import PoolerConfig
+    from jinav4_vllm.common.imaging import mm_processor_kwargs
+    kw = mm_processor_kwargs()  # image fidelity (min/max pixels) from env, else checkpoint default
     return LLM(model=VLLM_MODEL, runner="pooling",
                pooler_config=PoolerConfig(task="token_embed"),
-               max_model_len=max_model_len, gpu_memory_utilization=0.85)
+               max_model_len=max_model_len, gpu_memory_utilization=0.85,
+               mm_processor_kwargs=(kw or None))
 
 
 def _to_np(data):

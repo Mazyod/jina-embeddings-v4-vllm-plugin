@@ -42,7 +42,7 @@ TEMPLATE = (
 )
 
 
-def bake(src: str, npz: str, out_dir: str) -> dict:
+def bake(src: str, npz: str, out_dir: str, min_pixels: int = 0, max_pixels: int = 0) -> dict:
     repo = src if os.path.isdir(src) else snapshot_download(src)
     os.makedirs(out_dir, exist_ok=True)
 
@@ -78,6 +78,19 @@ def bake(src: str, npz: str, out_dir: str) -> dict:
     cfg["architectures"] = ["JinaV4MultiVector"]
     json.dump(cfg, open(cfg_path, "w"), indent=2)
 
+    # image fidelity: bake min/max pixels into the image processor config (drop-in)
+    if min_pixels or max_pixels:
+        pp_path = os.path.join(out_dir, "preprocessor_config.json")
+        pp = json.load(open(pp_path)) if os.path.exists(pp_path) else {}
+        size = pp.get("size", {}) if isinstance(pp.get("size"), dict) else {}
+        if min_pixels:
+            pp["min_pixels"] = int(min_pixels); size["shortest_edge"] = int(min_pixels)
+        if max_pixels:
+            pp["max_pixels"] = int(max_pixels); size["longest_edge"] = int(max_pixels)
+        if size:
+            pp["size"] = size
+        json.dump(pp, open(pp_path, "w"), indent=2)
+
     open(os.path.join(out_dir, "chat_template.jinja"), "w").write(TEMPLATE)
     # The Qwen2.5-VL processor template (chat_template.json) wins for multimodal; overwrite it too.
     json.dump({"chat_template": TEMPLATE}, open(os.path.join(out_dir, "chat_template.json"), "w"), indent=2)
@@ -96,10 +109,14 @@ def main():
     ap.add_argument("--src", default="jinaai/jina-embeddings-v4-vllm-retrieval")
     ap.add_argument("--npz", default="artifacts/projector/retrieval.npz")
     ap.add_argument("--out", default="./jina-v4-mv-baked")
+    ap.add_argument("--min-pixels", type=int, default=0,
+                    help="image processor min_pixels (0 = keep checkpoint default)")
+    ap.add_argument("--max-pixels", type=int, default=0,
+                    help="image processor max_pixels — raise for higher image fidelity")
     ap.add_argument("--push", default=None, help="optional HF repo id to upload the baked checkpoint")
     args = ap.parse_args()
 
-    meta = bake(args.src, args.npz, args.out)
+    meta = bake(args.src, args.npz, args.out, args.min_pixels, args.max_pixels)
     print(json.dumps(meta, indent=2))
 
     if args.push:

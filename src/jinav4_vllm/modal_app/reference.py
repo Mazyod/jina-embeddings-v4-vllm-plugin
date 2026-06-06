@@ -63,20 +63,27 @@ def reference_image():
     from transformers import AutoModel, AutoProcessor
     from jinav4_vllm.common.probes import IMAGE_PROBES, build_image_prompt
     from jinav4_vllm.common.artifacts import save_artifact
+    from jinav4_vllm.common.imaging import mm_processor_kwargs
 
+    # Image fidelity (min/max pixels) from env; must match the served/offline side for parity.
+    mm_kw = mm_processor_kwargs()
     model = AutoModel.from_pretrained("jinaai/jina-embeddings-v4", trust_remote_code=True,
                                       torch_dtype=torch.float32).eval()
-    processor = AutoProcessor.from_pretrained("jinaai/jina-embeddings-v4", trust_remote_code=True)
+    processor = AutoProcessor.from_pretrained("jinaai/jina-embeddings-v4", trust_remote_code=True,
+                                              **mm_kw)
     _activate_retrieval(model)
 
     os.makedirs(f"{ART}/reference", exist_ok=True)
     results = {}
     for p in IMAGE_PROBES:
         img = Image.open(f"/root/data/probes/{os.path.basename(p.path)}").convert("RGB")
-        mv = model.encode_image(images=[img], task="retrieval", return_multivector=True)[0]
+        try:
+            mv = model.encode_image(images=[img], task="retrieval", return_multivector=True, **mm_kw)[0]
+        except TypeError:
+            mv = model.encode_image(images=[img], task="retrieval", return_multivector=True)[0]
         mv = _mv_to_np(mv)
         # Token ids via the identical prompt + processor (vision tokens expand here).
-        proc = processor(text=[build_image_prompt()], images=[img], return_tensors="pt")
+        proc = processor(text=[build_image_prompt()], images=[img], return_tensors="pt", **mm_kw)
         ids = np.asarray(proc["input_ids"][0].cpu().numpy(), dtype=np.int64)
         assert mv.shape[0] == ids.shape[0], (
             f"{p.id}: image mv rows {mv.shape[0]} != token len {ids.shape[0]}")

@@ -93,7 +93,9 @@ def verify_projector():
 
 
 @app.function(image=ref_image, timeout=3600, **COMMON)
-def bake_checkpoint(out_dir: str = f"{ART}/jina-v4-mv-baked", src_model: str = "jinaai/jina-embeddings-v4-vllm-retrieval"):
+def bake_checkpoint(out_dir: str = f"{ART}/jina-v4-mv-baked",
+                    src_model: str = "jinaai/jina-embeddings-v4-vllm-retrieval",
+                    min_pixels: int = 0, max_pixels: int = 0):
     """Produce a fully self-contained, drop-in checkpoint for Variant C.
 
     = the vLLM retrieval checkpoint + the multi_vector_projector tensors + architectures override
@@ -150,6 +152,24 @@ def bake_checkpoint(out_dir: str = f"{ART}/jina-v4-mv-baked", src_model: str = "
     cfg = json.load(open(cfg_path))
     cfg["architectures"] = ["JinaV4MultiVector"]
     json.dump(cfg, open(cfg_path, "w"), indent=2)
+
+    # 4b) image fidelity: bake min/max pixels into the image processor config (drop-in)
+    if min_pixels or max_pixels:
+        pp_path = os.path.join(out_dir, "preprocessor_config.json")
+        pp = json.load(open(pp_path)) if os.path.exists(pp_path) else {}
+        if min_pixels:
+            pp["min_pixels"] = int(min_pixels)
+        if max_pixels:
+            pp["max_pixels"] = int(max_pixels)
+        # newer Qwen2.5-VL processors also read size={shortest_edge,longest_edge}
+        size = pp.get("size", {}) if isinstance(pp.get("size"), dict) else {}
+        if min_pixels:
+            size["shortest_edge"] = int(min_pixels)
+        if max_pixels:
+            size["longest_edge"] = int(max_pixels)
+        if size:
+            pp["size"] = size
+        json.dump(pp, open(pp_path, "w"), indent=2)
 
     # 5) bake the Jina image chat template so multimodal /pooling needs no --chat-template
     tmpl = open("/root/jinav4_vllm/vllm_plugin/jina_image_chat_template.jinja").read()

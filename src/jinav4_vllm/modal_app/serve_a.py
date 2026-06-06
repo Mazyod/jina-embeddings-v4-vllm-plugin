@@ -17,7 +17,12 @@ VLLM_MODEL = "jinaai/jina-embeddings-v4-vllm-retrieval"
 @modal.concurrent(max_inputs=8)
 @modal.web_server(port=VLLM_PORT, startup_timeout=600)
 def serve_a():
-    import subprocess
+    import subprocess, json, os
+    mm = {}
+    if os.environ.get("JINA_IMAGE_MIN_PIXELS"):
+        mm["min_pixels"] = int(os.environ["JINA_IMAGE_MIN_PIXELS"])
+    if os.environ.get("JINA_IMAGE_MAX_PIXELS"):
+        mm["max_pixels"] = int(os.environ["JINA_IMAGE_MAX_PIXELS"])
     cmd = [
         "vllm", "serve", VLLM_MODEL,
         "--runner", "pooling",
@@ -25,6 +30,6 @@ def serve_a():
         "--served-model-name", "jina-v4",
         "--host", "0.0.0.0", "--port", str(VLLM_PORT),
         "--max-model-len", "4096",
-    ]
+    ] + (["--mm-processor-kwargs", json.dumps(mm)] if mm else [])
     # Pass argv as a list (no shell) so flag values keep their exact form.
     subprocess.Popen(cmd)

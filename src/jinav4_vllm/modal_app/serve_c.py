@@ -15,6 +15,17 @@ VLLM_PORT = 8000
 VLLM_MODEL = "jinaai/jina-embeddings-v4-vllm-retrieval"
 
 
+def _mm_flags() -> list:
+    """`--mm-processor-kwargs {min_pixels,max_pixels}` from env, for image-fidelity control."""
+    import json, os
+    kw = {}
+    if os.environ.get("JINA_IMAGE_MIN_PIXELS"):
+        kw["min_pixels"] = int(os.environ["JINA_IMAGE_MIN_PIXELS"])
+    if os.environ.get("JINA_IMAGE_MAX_PIXELS"):
+        kw["max_pixels"] = int(os.environ["JINA_IMAGE_MAX_PIXELS"])
+    return ["--mm-processor-kwargs", json.dumps(kw)] if kw else []
+
+
 BAKED_CKPT = "/artifacts/jina-v4-mv-baked"  # produced by app.py::bake_checkpoint
 
 
@@ -35,7 +46,7 @@ def serve_c():
         # Custom chat template emits Jina's exact image prompt so multimodal /pooling token
         # sequences match the canonical reference (avoids the default-template wrapper tokens).
         "--chat-template", "/opt/jina_plugin/jina_image_chat_template.jinja",
-    ]
+    ] + _mm_flags()
     subprocess.Popen(cmd)
 
 
@@ -55,5 +66,5 @@ def serve_baked():
         "--served-model-name", "jina-v4",
         "--host", "0.0.0.0", "--port", str(VLLM_PORT),
         "--max-model-len", "4096",
-    ]
+    ] + _mm_flags()  # env overrides the checkpoint's baked preprocessor_config if set
     subprocess.Popen(cmd)

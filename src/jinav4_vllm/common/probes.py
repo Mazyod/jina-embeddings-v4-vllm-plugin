@@ -48,3 +48,12 @@ IMAGE_PROBES: list[ImageProbe] = [
     ImageProbe("image_cat", "data/probes/cat.png"),
     ImageProbe("image_chart", "data/probes/chart.png"),
 ]
+
+# Fidelity-only probe: a 3.84 MP document-like page. Used ONLY when a min/max-pixels override is
+# given, so raising max_pixels exercises the real downscale (fidelity) path on a large image. Kept
+# out of the default set because at the checkpoint default (max_pixels≈12.8M) it expands to ~4898
+# image tokens, which exceeds the offline harness's max_model_len. The reference/offline image jobs
+# append this only when a pixel override is passed (which caps it to a tractable token count).
+HIFI_IMAGE_PROBES: list[ImageProbe] = [
+    ImageProbe("image_doc_hires", "data/probes/doc_hires.png"),
+]

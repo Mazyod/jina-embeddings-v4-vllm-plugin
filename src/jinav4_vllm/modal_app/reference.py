@@ -61,7 +61,7 @@ def reference_image(min_pixels: int = 0, max_pixels: int = 0):
     import os, numpy as np, torch
     from PIL import Image
     from transformers import AutoModel, AutoProcessor
-    from jinav4_vllm.common.probes import IMAGE_PROBES, build_image_prompt
+    from jinav4_vllm.common.probes import IMAGE_PROBES, HIFI_IMAGE_PROBES, build_image_prompt
     from jinav4_vllm.common.artifacts import save_artifact
     from jinav4_vllm.common.imaging import mm_processor_kwargs
 
@@ -96,9 +96,12 @@ def reference_image(min_pixels: int = 0, max_pixels: int = 0):
     print(f"reference image processor: min_pixels={getattr(ip, 'min_pixels', None)} "
           f"max_pixels={getattr(ip, 'max_pixels', None)}")
 
+    # The large fidelity probe is only meaningful (and tractable) under a pixel override.
+    probes = IMAGE_PROBES + (HIFI_IMAGE_PROBES if (min_pixels or max_pixels) else [])
+
     os.makedirs(f"{ART}/reference", exist_ok=True)
     results = {}
-    for p in IMAGE_PROBES:
+    for p in probes:
         img = Image.open(f"/root/data/probes/{os.path.basename(p.path)}").convert("RGB")
         mv = _mv_to_np(model.encode_image(images=[img], task="retrieval", return_multivector=True)[0])
         # Token ids from the SAME processor the model used (vision tokens expand here).

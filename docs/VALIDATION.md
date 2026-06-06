@@ -77,3 +77,40 @@ Image-token count scales with resolution (`min_pixels`/`max_pixels`; see `deploy
 Image fidelity). The parity check aligns per-token, so the **reference and served/offline sides must
 use the same pixel bounds** — otherwise counts diverge and alignment (R2) fails. Repo defaults leave
 them unset (checkpoint default) to keep this demo green.
+
+> Note: the **vLLM serving** checkpoint (`…-vllm-retrieval`) ships `min_pixels=3136`,
+> `max_pixels=12 845 056` (≈12.8 MP — effectively uncapped), so large documents are *not* capped on
+> the serving side; the knob's role there is to **set a sensible ceiling** for cost/fidelity. The
+> "capped low" default applies to the HF/transformers checkpoint used for the reference.
+
+## High-resolution / image-fidelity parity (GPU-verified 2026-06-06)
+
+The min/max-pixels knob is **plumbed end-to-end and token-aligned**: forcing a raised resolution
+scales the image-token count identically on both sides (verified — `cat` 75→1307, `chart` 110→1313
+at `min_pixels=1 003 520`; a 3.84 MP document page → **1258 tokens** at `max_pixels=1 003 520`, same
+count on reference and offline). So resolution control and R2 alignment hold at raised fidelity.
+
+Per-token **parity to the HF reference degrades as the image-token count grows**, though:
+
+| image-token count | positional cos_mean | order-independent best-match cos_mean |
+|---|---|---|
+| ≤ ~110 (default probes) | 0.992 – 0.997 (PASS) | — |
+| ~1258 – 1313 (raised) | ~0.95 | ~0.98 (87% of tokens match at the same position) |
+
+Diagnosis (best-match analysis): the drop is **two preprocessing-level effects between the
+HF-transformers "fast" image processor and vLLM's image pipeline**, amplified by the bf16 vision
+tower over many patches — (1) a small **grid / row-ordering** difference at large patch grids (~13%
+of tokens land a patch-row off, which alone drags the positional mean down), and (2) genuine
+**interpolation + bf16** divergence on detailed (text-edge) patches (~0.98 best-match floor). It is
+**not** a defect in the plugin's projection or the served numerics — the served embeddings are
+internally correct.
+
+**Production implication:** embed queries *and* documents through the **same vLLM pipeline**. Then
+preprocessing is identical on both sides, per-token sequences align, and MaxSim (which is
+order-independent anyway) is self-consistent. Strict per-token byte-parity against
+HF-transformers at high resolution is a validation-harness comparison, not a serving requirement; if
+ever needed, align the two image processors (same interpolation / pinned `smart_resize`).
+
+Reproduce: `make reference` / `make offline` with a pixel override, which appends the large fidelity
+probe automatically, e.g.
+`uv run modal run …/reference.py::reference_image --max-pixels 1003520` (same for `offline.py`).

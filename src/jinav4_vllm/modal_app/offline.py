@@ -52,13 +52,15 @@ def offline_image(min_pixels: int = 0, max_pixels: int = 0):
     import sys; sys.path.insert(0, "/root")
     import os, numpy as np
     from PIL import Image
-    from jinav4_vllm.common.probes import IMAGE_PROBES, build_image_prompt
+    from jinav4_vllm.common.probes import IMAGE_PROBES, HIFI_IMAGE_PROBES, build_image_prompt
     from jinav4_vllm.common.artifacts import save_artifact
 
     llm = _build_engine(4096, min_pixels, max_pixels)
+    # The large fidelity probe is only meaningful (and tractable) under a pixel override.
+    probes = IMAGE_PROBES + (HIFI_IMAGE_PROBES if (min_pixels or max_pixels) else [])
     os.makedirs(f"{ART}/offline", exist_ok=True)
     results = {}
-    for p in IMAGE_PROBES:
+    for p in probes:
         img = Image.open(f"/root/data/probes/{os.path.basename(p.path)}").convert("RGB")
         out = llm.encode([{"prompt": build_image_prompt(), "multi_modal_data": {"image": img}}],
                          pooling_task="token_embed")[0]

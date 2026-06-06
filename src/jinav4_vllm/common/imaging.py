@@ -23,11 +23,22 @@ PRESET_MAX_STANDARD = 1280 * QWEN_PATCH_AREA   # 1_003_520 (Qwen2.5-VL default c
 PRESET_MAX_HIFI = 4096 * QWEN_PATCH_AREA       # 3_211_264 (high-fidelity documents)
 
 
-def mm_processor_kwargs() -> dict:
-    """Return {min_pixels, max_pixels} from env, or {} to use the checkpoint defaults."""
+def mm_processor_kwargs(min_pixels: int = 0, max_pixels: int = 0) -> dict:
+    """Return {min_pixels, max_pixels}, or {} to use the checkpoint defaults.
+
+    Resolution order per bound: explicit arg (> 0) wins, else the env var (JINA_IMAGE_*), else unset.
+    Explicit args matter for Modal: local env vars are NOT forwarded to remote containers, so the
+    reference/offline jobs take these as `modal run … --min-pixels/--max-pixels` parameters.
+    """
+    def pick(arg: int, env: str) -> int:
+        if arg:
+            return int(arg)
+        v = os.environ.get(env)
+        return int(v) if v else 0
+
     kw: dict[str, int] = {}
-    if os.environ.get(ENV_MIN):
-        kw["min_pixels"] = int(os.environ[ENV_MIN])
-    if os.environ.get(ENV_MAX):
-        kw["max_pixels"] = int(os.environ[ENV_MAX])
+    if (mn := pick(min_pixels, ENV_MIN)):
+        kw["min_pixels"] = mn
+    if (mx := pick(max_pixels, ENV_MAX)):
+        kw["max_pixels"] = mx
     return kw

@@ -56,7 +56,7 @@ def reference_text():
 
 
 @app.function(image=ref_image, gpu=GPU, timeout=2400, **COMMON)
-def reference_image():
+def reference_image(min_pixels: int = 0, max_pixels: int = 0):
     import sys; sys.path.insert(0, "/root")
     import os, numpy as np, torch
     from PIL import Image
@@ -65,25 +65,44 @@ def reference_image():
     from jinav4_vllm.common.artifacts import save_artifact
     from jinav4_vllm.common.imaging import mm_processor_kwargs
 
-    # Image fidelity (min/max pixels) from env; must match the served/offline side for parity.
-    mm_kw = mm_processor_kwargs()
+    # Image fidelity (min/max pixels) — must match the offline/served side for per-token parity.
+    # Local env vars don't reach Modal containers, so values arrive as function params; env is a
+    # fallback for non-Modal use.
+    mm_kw = mm_processor_kwargs(min_pixels, max_pixels)
+    min_pixels, max_pixels = mm_kw.get("min_pixels", 0), mm_kw.get("max_pixels", 0)
+
     model = AutoModel.from_pretrained("jinaai/jina-embeddings-v4", trust_remote_code=True,
                                       torch_dtype=torch.float32).eval()
-    processor = AutoProcessor.from_pretrained("jinaai/jina-embeddings-v4", trust_remote_code=True,
-                                              **mm_kw)
     _activate_retrieval(model)
+
+    # Jina's encode_image accepts only `max_pixels` (a ceiling, restored after each call) and no
+    # `min_pixels`, so it cannot force small images to upscale. Configure the model's OWN image
+    # processor directly (the same object encode_image mutates) so the embedding AND the token-id
+    # check below share identical resize bounds.
+    processor = getattr(model, "processor", None)
+    if processor is None:
+        processor = AutoProcessor.from_pretrained("jinaai/jina-embeddings-v4", trust_remote_code=True)
+        model.processor = processor
+    ip = processor.image_processor
+    if min_pixels:
+        ip.min_pixels = int(min_pixels)
+    if max_pixels:
+        ip.max_pixels = int(max_pixels)
+    if isinstance(getattr(ip, "size", None), dict):
+        if min_pixels:
+            ip.size["shortest_edge"] = int(min_pixels)
+        if max_pixels:
+            ip.size["longest_edge"] = int(max_pixels)
+    print(f"reference image processor: min_pixels={getattr(ip, 'min_pixels', None)} "
+          f"max_pixels={getattr(ip, 'max_pixels', None)}")
 
     os.makedirs(f"{ART}/reference", exist_ok=True)
     results = {}
     for p in IMAGE_PROBES:
         img = Image.open(f"/root/data/probes/{os.path.basename(p.path)}").convert("RGB")
-        try:
-            mv = model.encode_image(images=[img], task="retrieval", return_multivector=True, **mm_kw)[0]
-        except TypeError:
-            mv = model.encode_image(images=[img], task="retrieval", return_multivector=True)[0]
-        mv = _mv_to_np(mv)
-        # Token ids via the identical prompt + processor (vision tokens expand here).
-        proc = processor(text=[build_image_prompt()], images=[img], return_tensors="pt", **mm_kw)
+        mv = _mv_to_np(model.encode_image(images=[img], task="retrieval", return_multivector=True)[0])
+        # Token ids from the SAME processor the model used (vision tokens expand here).
+        proc = processor(text=[build_image_prompt()], images=[img], return_tensors="pt")
         ids = np.asarray(proc["input_ids"][0].cpu().numpy(), dtype=np.int64)
         assert mv.shape[0] == ids.shape[0], (
             f"{p.id}: image mv rows {mv.shape[0]} != token len {ids.shape[0]}")

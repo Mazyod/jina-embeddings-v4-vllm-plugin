@@ -6,12 +6,13 @@ from jinav4_vllm.modal_app.app import app, vllm_image, GPU, COMMON, ART, artifac
 VLLM_MODEL = "jinaai/jina-embeddings-v4-vllm-retrieval"
 
 
-def _build_engine(max_model_len):
+def _build_engine(max_model_len, min_pixels=0, max_pixels=0):
     import sys; sys.path.insert(0, "/root")
     from vllm import LLM
     from vllm.config import PoolerConfig
     from jinav4_vllm.common.imaging import mm_processor_kwargs
-    kw = mm_processor_kwargs()  # image fidelity (min/max pixels) from env, else checkpoint default
+    kw = mm_processor_kwargs(min_pixels, max_pixels)  # image fidelity; else checkpoint default
+    print(f"offline engine mm_processor_kwargs={kw}")
     return LLM(model=VLLM_MODEL, runner="pooling",
                pooler_config=PoolerConfig(task="token_embed"),
                max_model_len=max_model_len, gpu_memory_utilization=0.85,
@@ -47,14 +48,14 @@ def offline_text():
 
 
 @app.function(image=vllm_image, gpu=GPU, timeout=2400, **COMMON)
-def offline_image():
+def offline_image(min_pixels: int = 0, max_pixels: int = 0):
     import sys; sys.path.insert(0, "/root")
     import os, numpy as np
     from PIL import Image
     from jinav4_vllm.common.probes import IMAGE_PROBES, build_image_prompt
     from jinav4_vllm.common.artifacts import save_artifact
 
-    llm = _build_engine(4096)
+    llm = _build_engine(4096, min_pixels, max_pixels)
     os.makedirs(f"{ART}/offline", exist_ok=True)
     results = {}
     for p in IMAGE_PROBES:

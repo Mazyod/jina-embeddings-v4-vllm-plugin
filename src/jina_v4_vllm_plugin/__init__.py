@@ -6,8 +6,12 @@ Installed as `jina-v4-vllm-plugin`; declared as a `vllm.general_plugins` entry p
 package — get its path with `chat_template_path()`.
 """
 from importlib import resources
+from importlib.metadata import PackageNotFoundError, version
 
-__version__ = "0.1.0"
+try:
+    __version__ = version("jina-v4-vllm-plugin")
+except PackageNotFoundError:  # running from a source checkout that isn't installed
+    __version__ = "0+unknown"
 
 CHAT_TEMPLATE_FILE = "jina_image_chat_template.jinja"
 

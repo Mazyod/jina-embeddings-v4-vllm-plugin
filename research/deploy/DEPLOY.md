@@ -18,7 +18,7 @@ in-engine. Pin the vLLM version — the model class touches vLLM internals; re-v
 | Plugin package | repo root (`src/jina_v4_vllm_plugin/`, published as `jina-v4-vllm-plugin`) | registers `JinaV4MultiVector` (entry point) + model class |
 | Image chat template | shipped in the `jina-v4-vllm-plugin` package (`chat_template_path()`) | makes multimodal `/pooling` emit Jina's exact image prompt |
 | Projector weights | `artifacts/projector/retrieval.npz` (`W[128,2048]`,`b[128]`) | the 128-dim head — NOT in the vLLM checkpoint |
-| Dockerfile | `deploy/Dockerfile` | extends official `vllm/vllm-openai` with the plugin |
+| Dockerfile | `research/deploy/Dockerfile` (build context = repo root) | extends official `vllm/vllm-openai` with the plugin |
 | Bake script | `deploy/bake_checkpoint.py` | builds the fully drop-in checkpoint (Mode B) |
 
 To (re)generate `retrieval.npz` from scratch: extract the retrieval-effective `multi_vector_projector`
@@ -41,11 +41,11 @@ To (re)generate `retrieval.npz` from scratch: extract the retrieval-effective `m
 
 ```bash
 # from the repo root (build context = repo root):  docker build -f research/deploy/Dockerfile -t <img> .
-docker build -f deploy/Dockerfile --build-arg VLLM_TAG=v0.22.0 -t jina-v4-mv-vllm:0.22.0 .
+docker build -f research/deploy/Dockerfile --build-arg VLLM_TAG=v0.22.0 -t jina-v4-mv-vllm:0.22.0 .
 ```
 
 For **Mode A**, also bake the projector + chat template into the image: uncomment the two
-`COPY/ENV` lines for `retrieval.npz` in `deploy/Dockerfile` before building (or mount them at runtime).
+`COPY/ENV` lines for `retrieval.npz` in `research/deploy/Dockerfile` before building (or mount them at runtime).
 
 ---
 

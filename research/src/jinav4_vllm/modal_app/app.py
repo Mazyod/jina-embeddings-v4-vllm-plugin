@@ -16,15 +16,24 @@ CACHE = "/root/.cache/huggingface"
 VLLM_CACHE = "/root/.cache/vllm"
 ART = "/artifacts"
 
-# Chat template now ships inside the plugin package; this is its path under the mounted source.
-CHAT_TEMPLATE_SRC = "/root/jinav4_vllm/vllm_plugin/jina_v4_vllm_plugin/jina_image_chat_template.jinja"
+# Chat template ships with the root plugin package (one level up from research/); _with_local mounts
+# it at this stable path so the bake job can read it without installing the plugin.
+CHAT_TEMPLATE_SRC = "/root/jina_image_chat_template.jinja"
 
 
 def _with_local(img):
-    """Attach project source + probe images so containers can import jinav4_vllm and read probes."""
+    """Attach project source + probe images so containers can import jinav4_vllm and read probes.
+
+    The image chat template ships with the root plugin package (one level up from research/); mount
+    it at a stable path so the bake job can read it without installing the plugin.
+    """
     return (
         img.add_local_dir("src/jinav4_vllm", remote_path="/root/jinav4_vllm")
            .add_local_dir("data/probes", remote_path="/root/data/probes")
+           .add_local_file(
+               "../src/jina_v4_vllm_plugin/jina_image_chat_template.jinja",
+               remote_path="/root/jina_image_chat_template.jinja",
+           )
     )
 
 
@@ -49,9 +58,16 @@ vllm_image = _with_local(_vllm_base)
 # Serving image: install our out-of-tree model as a vLLM general plugin (entry point), so a stock
 # `vllm serve ... --hf-overrides architectures=[JinaV4MultiVector]` emits final [n,128].
 # copy=True lets the pip-install build step run before the (non-copy) runtime mounts in _with_local.
+# Install our out-of-tree model as a vLLM general plugin (entry point). The plugin is now the repo's
+# ROOT package (one level up from research/); assemble its project layout under /opt/jina_plugin and
+# pip-install it. Post-publish you can replace the three add_local_* + install with a single:
+#   .run_commands("python -m pip install --no-deps jina-v4-vllm-plugin")
 vllm_plugin_image = _with_local(
     _vllm_base
-    .add_local_dir("src/jinav4_vllm/vllm_plugin", remote_path="/opt/jina_plugin", copy=True)
+    .add_local_file("../pyproject.toml", remote_path="/opt/jina_plugin/pyproject.toml", copy=True)
+    .add_local_file("../README.md", remote_path="/opt/jina_plugin/README.md", copy=True)
+    .add_local_dir("../src/jina_v4_vllm_plugin",
+                   remote_path="/opt/jina_plugin/src/jina_v4_vllm_plugin", copy=True)
     .run_commands(
         "python -m pip install --no-deps /opt/jina_plugin "
         "|| (python -m ensurepip && python -m pip install --no-deps /opt/jina_plugin)"

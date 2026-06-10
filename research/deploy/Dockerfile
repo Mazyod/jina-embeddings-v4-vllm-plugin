@@ -4,25 +4,28 @@
 # OpenAI server's /pooling endpoint returns final L2-normalized [n,128] multivectors for text+image.
 #
 # Pin VLLM_TAG to the version the plugin was validated against (the model class touches vLLM
-# internals; re-validate on upgrades — see docs/COMPAT.md).
+# internals; re-validate on upgrades — see research/docs/COMPAT.md).
 ARG VLLM_TAG=v0.22.0
 FROM vllm/vllm-openai:${VLLM_TAG}
 
-# 1) Install the plugin (registers the JinaV4MultiVector architecture via a vllm.general_plugins
-#    entry point, loaded in every process incl. the v1 EngineCore worker).
-COPY src/jinav4_vllm/vllm_plugin /opt/jina_plugin
+# 1) Install the plugin (registers JinaV4MultiVector via a vllm.general_plugins entry point, loaded in
+#    every process incl. the v1 EngineCore worker). The plugin is the repo ROOT package, so build with
+#    the build context = repo root:  docker build -f research/deploy/Dockerfile -t <img> .
+#    Post-publish you can replace the COPY+install with:  RUN pip install --no-deps jina-v4-vllm-plugin
+COPY pyproject.toml README.md /opt/jina_plugin/
+COPY src/jina_v4_vllm_plugin /opt/jina_plugin/src/jina_v4_vllm_plugin
 RUN python3 -m pip install --no-cache-dir --no-deps /opt/jina_plugin
 
 # 2) Chat template (only needed for the "Mode A" run below; the baked checkpoint embeds its own).
 #    It ships inside the installed package; keep a copy at a stable path for the Mode A example.
-RUN cp /opt/jina_plugin/jina_v4_vllm_plugin/jina_image_chat_template.jinja /opt/jina_image_chat_template.jinja
+RUN cp /opt/jina_plugin/src/jina_v4_vllm_plugin/jina_image_chat_template.jinja /opt/jina_image_chat_template.jinja
 
 # 3) (Mode A only) the projector, if you are NOT using the baked checkpoint. Uncomment + provide it:
-# COPY artifacts/projector/retrieval.npz /opt/retrieval.npz
+# COPY research/artifacts/projector/retrieval.npz /opt/retrieval.npz
 # ENV JINA_MV_PROJECTOR=/opt/retrieval.npz
 
 # The base image's entrypoint is already `vllm serve`. Pass the model + flags at `docker run` time
-# (see deploy/DEPLOY.md). Example (Mode B, fully drop-in baked checkpoint):
+# (see research/deploy/DEPLOY.md). Example (Mode B, fully drop-in baked checkpoint):
 #   docker run --gpus all -p 8000:8000 <image> \
 #     <your-baked-checkpoint-repo-or-path> \
 #     --runner pooling --pooler-config.task token_embed

@@ -15,7 +15,7 @@ in-engine. Pin the vLLM version — the model class touches vLLM internals; re-v
 
 | Piece | Path | Why |
 |---|---|---|
-| Plugin package | `src/jinav4_vllm/vllm_plugin/` | registers `JinaV4MultiVector` (entry point) + model class |
+| Plugin package | repo root (`src/jina_v4_vllm_plugin/`, published as `jina-v4-vllm-plugin`) | registers `JinaV4MultiVector` (entry point) + model class |
 | Image chat template | shipped in the `jina-v4-vllm-plugin` package (`chat_template_path()`) | makes multimodal `/pooling` emit Jina's exact image prompt |
 | Projector weights | `artifacts/projector/retrieval.npz` (`W[128,2048]`,`b[128]`) | the 128-dim head — NOT in the vLLM checkpoint |
 | Dockerfile | `deploy/Dockerfile` | extends official `vllm/vllm-openai` with the plugin |
@@ -40,7 +40,7 @@ To (re)generate `retrieval.npz` from scratch: extract the retrieval-effective `m
 ## 1. Build the image (both modes)
 
 ```bash
-# from the repo root (build context must include src/jinav4_vllm/vllm_plugin)
+# from the repo root (build context = repo root):  docker build -f research/deploy/Dockerfile -t <img> .
 docker build -f deploy/Dockerfile --build-arg VLLM_TAG=v0.22.0 -t jina-v4-mv-vllm:0.22.0 .
 ```
 

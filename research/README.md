@@ -29,8 +29,9 @@ backbone + a ColBERT projection + `pooler_for_token_embed`) to produce true mult
 ## Quickstart (production — Variant C)
 
 ```bash
-# 1) build the serving image (official vLLM image + plugin)
-docker build -f deploy/Dockerfile --build-arg VLLM_TAG=v0.22.0 -t jina-v4-mv-vllm:0.22.0 .
+# 1) build the serving image (official vLLM image + plugin) — context is the REPO ROOT (..) because
+#    the Dockerfile copies the root plugin package (src/jina_v4_vllm_plugin); run from research/:
+docker build -f deploy/Dockerfile --build-arg VLLM_TAG=v0.22.0 -t jina-v4-mv-vllm:0.22.0 ..
 
 # 2) bake a drop-in checkpoint (projector + architecture + chat template; raise --max-pixels for fidelity)
 python deploy/bake_checkpoint.py --out ./jina-v4-mv-baked --max-pixels 3211264

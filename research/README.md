@@ -17,7 +17,7 @@ backbone + a ColBERT projection + `pooler_for_token_embed`) to produce true mult
 
 | Path | What |
 |---|---|
-| **`src/jinav4_vllm/vllm_plugin/`** | **The plugin** — `JinaV4MultiVector` model + entry-point registration + image chat template. Builds as the `jina-v4-vllm-plugin` wheel. The maintained core. |
+| **the repo root** (`../pyproject.toml`, `../src/jina_v4_vllm_plugin/`) | **The plugin** — `JinaV4MultiVector` model + entry-point registration + image chat template. Published as `jina-v4-vllm-plugin` (`pip install jina-v4-vllm-plugin`). The maintained core. |
 | **`deploy/`** | Production hand-off: `DEPLOY.md` runbook, `Dockerfile` (extends official `vllm/vllm-openai`), `bake_checkpoint.py` (drop-in checkpoint builder). |
 | `src/jinav4_vllm/client.py` | `JinaV4Client` SDK — text/image embed + MaxSim over the served `/pooling` endpoint. |
 | `src/jinav4_vllm/projector/` | Extract the retrieval-effective projector (base + retrieval-LoRA merged) → `retrieval.npz`. |

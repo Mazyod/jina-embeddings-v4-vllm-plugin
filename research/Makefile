@@ -1,4 +1,4 @@
-.PHONY: help install test package extract bake reference offline serve collect smoke parity revalidate e2e
+.PHONY: help install test extract bake reference offline serve collect smoke parity revalidate e2e
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -8,9 +8,6 @@ install:  ## sync the dev environment (uv)
 
 test:  ## run the local pure-logic test suite (no GPU/vLLM)
 	uv run pytest -q
-
-package:  ## build the installable plugin wheel -> src/jinav4_vllm/vllm_plugin/dist
-	cd src/jinav4_vllm/vllm_plugin && uv build
 
 # --- GPU validation loop on Modal (requires `modal` configured + a huggingface-secret) ---
 

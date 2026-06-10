@@ -12,12 +12,13 @@ entry point, so it loads in every vLLM process including the v1 EngineCore worke
 ## Install
 
 ```bash
-pip install --no-deps .          # into an image that already provides vLLM (e.g. vllm/vllm-openai)
-# or build a wheel:  python -m build   /   uv build
+pip install jina-v4-vllm-plugin        # from PyPI
+# into an image that already provides vLLM (e.g. vllm/vllm-openai), skip re-resolving vLLM/torch:
+pip install --no-deps jina-v4-vllm-plugin
 ```
 
 `--no-deps` keeps pip from re-resolving vLLM/torch inside the official image. Pin the host vLLM
-version the plugin was validated against — see `docs/COMPAT.md` in the repo.
+version the plugin was validated against — see `research/docs/COMPAT.md`.
 
 ## Use
 
@@ -30,4 +31,23 @@ vllm serve <jina-v4-checkpoint> \
 
 The projector weights (`128×2048` + bias) are **not** in the vLLM checkpoint; the plugin loads them
 at startup from `JINA_MV_PROJECTOR` (default `/artifacts/projector/retrieval.npz`), or from the
-checkpoint itself if baked in. Full runbook: `deploy/DEPLOY.md`.
+checkpoint itself if baked in. A ready-made baked, drop-in checkpoint is published at
+[`Mazyod/jina-embeddings-v4-vllm-mv`](https://huggingface.co/Mazyod/jina-embeddings-v4-vllm-mv).
+
+## Build & validation tooling
+
+The Modal build/validate/bake/deploy harness that produced and verified the artifacts lives under
+[`research/`](research/) (its own uv project): projector extraction, checkpoint baking, HF-vs-vLLM
+parity, the deploy runbook, and the vLLM-version compatibility matrix
+(`research/docs/COMPAT.md`, `research/deploy/DEPLOY.md`).
+
+## Develop
+
+```bash
+make install   # uv sync
+make test      # packaging contract tests (no GPU/vLLM)
+make build     # sdist + wheel into dist/
+```
+
+Releases publish to PyPI via GitHub Actions Trusted Publishing (OIDC) — run the **Publish to PyPI**
+workflow (`workflow_dispatch`, choose patch/minor/major).

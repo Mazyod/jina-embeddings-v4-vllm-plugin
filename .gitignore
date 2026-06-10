@@ -7,7 +7,7 @@ venv/
 # uv
 .uv/
 
-# build outputs (e.g. the plugin wheel: src/jinav4_vllm/vllm_plugin/dist)
+# build outputs (the plugin wheel builds at the repo root: ./dist)
 build/
 dist/
 *.egg-info/
@@ -16,13 +16,13 @@ dist/
 .env
 *.env
 
-# generated parity outputs (curated findings live in docs/VALIDATION.md)
-reports/parity.json
-reports/parity.md
+# generated parity outputs (curated findings live in research/docs/VALIDATION.md)
+research/reports/parity.json
+research/reports/parity.md
 
 # local artifact copies pulled from the Modal volume
-artifacts/*/
-!artifacts/.gitkeep
+research/artifacts/*/
+!research/artifacts/.gitkeep
 
 # model cache
 *.safetensors

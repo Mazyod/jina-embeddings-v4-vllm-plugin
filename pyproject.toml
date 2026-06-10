@@ -28,7 +28,7 @@ Homepage = "https://github.com/Mazyod/jina-embeddings-v4-vllm-plugin"
 Repository = "https://github.com/Mazyod/jina-embeddings-v4-vllm-plugin"
 Documentation = "https://github.com/Mazyod/jina-embeddings-v4-vllm-plugin#readme"
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = ["pytest>=8.0"]
 
 [build-system]

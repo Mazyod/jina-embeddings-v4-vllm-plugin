@@ -1,0 +1,84 @@
+name: Publish to PyPI
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: Version bump type
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    name: Build and publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check main branch
+        if: github.ref_name != 'main'
+        run: |
+          echo "Publish workflow must be dispatched from main."
+          exit 1
+
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install Python
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --all-extras --python 3.13
+
+      - name: Configure Git author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version
+        id: version
+        run: |
+          uv version --bump "${{ inputs.bump_type }}"
+          VERSION="$(uv version --short)"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Commit version bump
+        run: |
+          git add pyproject.toml uv.lock
+          git commit -m "chore: release v${{ steps.version.outputs.version }}"
+
+      - name: Tag release
+        run: git tag "v${{ steps.version.outputs.version }}"
+
+      - name: Push main and tag
+        run: |
+          git push origin HEAD:main
+          git push origin "v${{ steps.version.outputs.version }}"
+
+      - name: Build distribution
+        run: uv build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ steps.version.outputs.version }}" dist/* --title "v${{ steps.version.outputs.version }}" --generate-notes
